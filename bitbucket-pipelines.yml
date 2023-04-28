@@ -1,0 +1,102 @@
+pipelines:
+  branches: # Branch-specific pipelines definitions
+    master:
+      - step:
+          name: Master | building the app
+          image: node:latest #Specific docker image with the node-version
+          script:
+            - npm install
+            - npm run build
+          artifacts:
+            - dist/**
+
+      - step:
+          name: Master | deploying the app to S3
+          deployment: production
+          script:
+            - pipe: atlassian/aws-s3-deploy:0.2.4
+              variables:
+                AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID
+                AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
+                AWS_DEFAULT_REGION: $AWS_DEFAULT_REGION
+                S3_BUCKET: $S3_BUCKET
+                LOCAL_PATH: 'dist'
+
+    staging:
+      - step:
+          image: node:18.16.0
+          name: Staging | deploying infra to AWS
+          deployment: staging
+          script:
+            - cat /etc/*-release
+            - node -v
+            - echo $AWS_ACCESS_KEY_ID
+            - echo $AWS_SECRET_ACCESS_KEY
+
+            - export AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION
+            - export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+            - export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+
+            - export TF_VAR_aws_region=$AWS_DEFAULT_REGION
+            - export TF_VAR_staging_bucket_name=myaliasname.banpay.com
+
+            - export TF_VAR_access_key=$AWS_ACCESS_KEY_ID
+            - export TF_VAR_secret_key=$AWS_SECRET_ACCESS_KEY
+            - export TF_VAR_AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION
+
+            # Repo section
+            # - git checkout staging
+            # - apk update
+            # - apk add nodejs --update-cache --repository http://dl-cdn.alpinelinux.org/alpine/edge/main --allow-untrusted
+            # - apk add nodejs npm
+            # - apk add nodejs-current npm
+            # - apk add --no-cache aws-cli
+            # - aws s3 ls
+            - node -v
+            - npm -v
+            - npm install
+            - npm run build
+            - pwd
+            - ls -la
+            - cd terraform/staging
+            - ls -la
+            - pwd
+            # Terraform section
+            - terraform init
+            - terraform validate
+            # - terraform plan
+            - terraform apply -input=true -auto-approve
+
+  custom:
+    code_inspection:
+      - step:
+          name: code inspection
+          script:
+            - pipe: sonarsource/sonarcloud-scan:1.0.1
+              variables:
+                EXTRA_ARGS: '-Dsonar.projectKey=${SONAR_PROJECT_KEY} -Dsonar.login=${SONAR_TOKEN}} -Dsonar.organization=${SONAR_ORGANIZATION}'
+            - pipe: sonarsource/sonarcloud-quality-gate:0.1.3
+
+    # staging_infra_terraform:
+    #   - step:
+    #       image: hashicorp/terraform:full
+    #       script:
+    #         # - aws s3 ls
+    #         - echo $AWS_ACCESS_KEY_ID
+    #         - echo $AWS_SECRET_ACCESS_KEY
+    #         - export AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION
+    #         - export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+    #         - export AWS_SECRET_ACCESS_KEY= $AWS_SECRET_ACCESS_KEY
+    #         - export TF_VAR_aws_region=$AWS_DEFAULT_REGION
+    #         - export TF_VAR_staging_bucket_name=terraform-staging.banpay.com
+    #         # Repo section
+    #         - git checkout staging
+    #         - npm run install && npm run build
+    #         - pwd
+    #         - cd terraform/staging
+    #         - pwd
+    #         # Terraform section
+    #         - terraform init -backend-config="access_key=$AWS_ACCESS_KEY_ID" -backend-config="secret_key=$AWS_SECRET_ACCESS_KEY"
+    #         - terraform validate
+    #         - terraform plan
+    #         - terraform apply -input=true -auto-approve
